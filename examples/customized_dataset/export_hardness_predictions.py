@@ -3,10 +3,11 @@ import csv
 import logging
 from pathlib import Path
 
+import importlib
+import importlib.util
+import sys
+
 import torch
-from fairseq import checkpoint_utils, options, tasks, utils
-from fairseq.dataclass.utils import convert_namespace_to_omegaconf
-from fairseq.logging import progress_bar
 
 
 def write_predictions(output_path: Path, rows):
@@ -18,7 +19,7 @@ def write_predictions(output_path: Path, rows):
             writer.writerow(row)
 
 
-def run_split(cfg, args, task, model, split: str, device: torch.device):
+def run_split(cfg, args, task, model, split: str, device: torch.device, utils, progress_bar):
     task.load_dataset(split)
     batch_iterator = task.get_batch_iterator(
         dataset=task.dataset(split),
@@ -74,6 +75,47 @@ def run_split(cfg, args, task, model, split: str, device: torch.device):
 
 
 def main():
+    repo_root = Path(__file__).resolve().parents[2]
+    if (repo_root / "fairseq").exists():
+        sys.path.insert(0, str(repo_root))
+
+    if importlib.util.find_spec("fairseq") is None:
+        raise ModuleNotFoundError(
+            "fairseq is required for this script. Install it with 'pip install -e ./fairseq' "
+            "from the repository root (or initialize the fairseq submodule) and ensure the "
+            "repository root is on PYTHONPATH."
+        )
+
+    required_modules = [
+        "fairseq.checkpoint_utils",
+        "fairseq.options",
+        "fairseq.tasks",
+        "fairseq.utils",
+        "fairseq.dataclass.utils",
+        "fairseq.logging",
+    ]
+    missing_modules = []
+    for module_name in required_modules:
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            missing_modules.append(module_name)
+
+    if missing_modules:
+        raise ModuleNotFoundError(
+            "fairseq is required for this script and some submodules are missing: "
+            f"{', '.join(missing_modules)}. Install it with 'pip install -e ./fairseq' "
+            "from the repository root (or initialize the fairseq submodule) and ensure the "
+            "repository root is on PYTHONPATH."
+        )
+
+    checkpoint_utils = importlib.import_module("fairseq.checkpoint_utils")
+    options = importlib.import_module("fairseq.options")
+    tasks = importlib.import_module("fairseq.tasks")
+    utils = importlib.import_module("fairseq.utils")
+    dataclass_utils = importlib.import_module("fairseq.dataclass.utils")
+    fairseq_logging = importlib.import_module("fairseq.logging")
+
     parser = options.get_training_parser()
     parser.add_argument("--checkpoint-path", required=True, type=str)
     parser.add_argument(
@@ -84,7 +126,7 @@ def main():
     )
     parser.add_argument("--output-dir", required=True, type=Path)
     args = options.parse_args_and_arch(parser, modify_parser=None)
-    cfg = convert_namespace_to_omegaconf(args)
+    cfg = dataclass_utils.convert_namespace_to_omegaconf(args)
 
     logger = logging.getLogger(__name__)
     utils.set_torch_seed(cfg.common.seed)
@@ -100,7 +142,7 @@ def main():
 
     for split in [s.strip() for s in args.splits.split(",") if s.strip()]:
         logger.info("Exporting predictions for split: %s", split)
-        rows = run_split(cfg, args, task, model, split, device)
+        rows = run_split(cfg, args, task, model, split, device, utils, fairseq_logging.progress_bar)
         output_path = args.output_dir / f"{split}_predictions.csv"
         write_predictions(output_path, rows)
 
