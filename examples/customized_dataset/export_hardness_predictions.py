@@ -79,10 +79,22 @@ def main():
     if (repo_root / "fairseq").exists():
         sys.path.insert(0, str(repo_root))
 
-    if importlib.util.find_spec("fairseq") is None:
+    required_modules = [
+        "fairseq",
+        "fairseq.checkpoint_utils",
+        "fairseq.options",
+        "fairseq.tasks",
+        "fairseq.utils",
+        "fairseq.dataclass.utils",
+        "fairseq.logging",
+    ]
+    missing_modules = [name for name in required_modules if importlib.util.find_spec(name) is None]
+    if missing_modules:
         raise ModuleNotFoundError(
-            "fairseq is required for this script. Install it with 'pip install -e ./fairseq' "
-            "from the repository root or ensure the repository root is on PYTHONPATH."
+            "fairseq is required for this script and some submodules are missing: "
+            f"{', '.join(missing_modules)}. Install it with 'pip install -e ./fairseq' "
+            "from the repository root (or initialize the fairseq submodule) and ensure the "
+            "repository root is on PYTHONPATH."
         )
 
     checkpoint_utils = importlib.import_module("fairseq.checkpoint_utils")
